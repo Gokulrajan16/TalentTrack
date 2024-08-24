@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Candidate Questions</title>
+    <style>
+        /* General styles */
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(to right, #f7f9fc, #e2e6ea);
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 700px;
+            background: #fff;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        /* Header */
+        h1 {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+
+        /* Timer styles */
+        .timer {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+            background: #007bff;
+            padding: 12px 24px;
+            border-radius: 6px;
+            margin-bottom: 25px;
+            display: inline-block;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .timer.warning {
+            background-color: #dc3545;
+        }
+
+        /* Question container */
+        .question-container {
+            margin-bottom: 25px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .question-container:hover {
+            background-color: #f1f1f1;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+        }
+
+        .question {
+            font-size: 20px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        .options {
+            margin-top: 15px;
+            text-align: left;
+        }
+
+        .options label {
+            display: block;
+            font-size: 16px;
+            padding: 8px 0;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .options label:hover {
+            background-color: #f1f1f1;
+        }
+
+        .options input[type="radio"] {
+            margin-right: 10px;
+        }
+
+        /* Buttons */
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 25px;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* Hidden elements */
+        .hidden {
+            display: none;
+        }
+
+        /* Thank you container */
+        .thank-you-container {
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            margin-top: 30px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .thank-you-message {
+            font-size: 20px;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+
+        .thank-you-button {
+            background-color: #28a745;
+            margin-top: 20px;
+        }
+
+        .thank-you-button:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+
+        /* Webcam and canvas styles */
+        .webcam-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        video, canvas {
+            display: block;
+            margin: 0 auto;
+            border: 3px solid #007bff;
+            border-radius: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .timer {
+                font-size: 20px;
+                padding: 10px 20px;
+            }
+
+            button {
+                font-size: 14px;
+                padding: 10px 20px;
+            }
+
+            .question {
+                font-size: 18px;
+            }
+
+            .options label {
+                font-size: 14px;
+            }
+
+            .thank-you-message {
+                font-size: 18px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Webcam Section -->
+    <div class="webcam-container">
+        <video id="video" width="320" height="240" autoplay></video>
+        <canvas id="canvas" width="320" height="240" style="display: none;"></canvas>
+    </div>
+
+    <div class="container">
+        {% if questions %}
+        <form id="candidate-form">
+            <h1>Candidate Questions</h1>
+            <div class="timer" id="timer">30</div>
+            {% for item in questions %}
+            <div class="question-container hidden" id="question{{ item.q_id }}">
+                <div class="question">
+                    <span id="question-number-{{ item.q_id }}"></span>. {{ item.question }}
+                </div>
+
+                <div class="options">
+                    {% for option in item.options %}
+                    <label><input type="radio" name="question{{ item.q_id }}" value="{{ option }}" required>{{ option }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <div class="form-controls">
+                <button type="button" id="next-button">Next</button>
+                <button type="button" id="submit-button" class="hidden">Submit</button>
+            </div>
+        </form>
+
+        <div class="thank-you-container hidden" id="thank-you-container">
+            <p class="thank-you-message">Thank you for completing the exam! Based on your performance, our HR will contact you.</p>
+            <button class="thank-you-button" id="thank-you-button">Thank You</button>
+        </div>
+
+        {% else %}
+        <p class="no-questions">No questions available.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const totalQuestions = JSON.parse('{{ questions | length | tojson }}');
+            let currentQuestionIndex = 1;
+            let timer;
+            const TIMER_DURATION = 30;
+            let tabSwitchCount = 0;
+            let examSubmitted = false; // Flag to check if the exam is submitted
+
+            const video = document.getElementById('video');
+            navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                video.srcObject = stream;
+            }).catch(err => {
+                console.error("Error accessing the camera:", err);
+            });
+
+            function captureImage() {
+                const canvas = document.getElementById('canvas');
+                const context = canvas.getContext("2d");
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL("image/png");
+                sendImage(dataUrl);
+            }
+
+            function sendImage(dataUrl) {
+                fetch('/capture_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: dataUrl })
+                }).then(response => {
+                    console.log('Image sent to server');
+                }).catch(err => {
+                    console.error('Error sending image to server:', err);
+                });
+            }
+
+            // Capture image every 10 seconds (you can adjust the interval)
+            setInterval(captureImage, 10000);
+
+            function startTimer() {
+                let timeLeft = TIMER_DURATION;
+                const timerElement = document.getElementById('timer');
+                timer = setInterval(function() {
+                    timerElement.textContent = timeLeft;
+                    timeLeft--;
+
+                    if (timeLeft < 10) {
+                        timerElement.classList.add('warning');
+                    }
+
+                    if (timeLeft < 0) {
+                        clearInterval(timer);
+                        if (currentQuestionIndex < totalQuestions) {
+                            currentQuestionIndex++;
+                            showQuestion(currentQuestionIndex);
+                        } else {
+                            document.getElementById('submit-button').click();
+                        }
+                    }
+                }, 1000);
+            }
+
+            function showQuestion(index) {
+                console.log(`Showing question ${index}`);
+                document.querySelectorAll(".question-container").forEach(function(container) {
+                    container.classList.add("hidden");
+                });
+
+                const questionNumberElement = document.getElementById(`question-number-${index}`);
+                questionNumberElement.textContent = index;
+
+                document.getElementById('question' + index).classList.remove('hidden');
+                document.getElementById('next-button').classList.toggle('hidden', index >= totalQuestions);
+                document.getElementById('submit-button').classList.toggle('hidden', index < totalQuestions);
+
+                clearInterval(timer);
+                startTimer();
+            }
+
+            function serializeForm(form) {
+                const formData = new FormData(form);
+                const queryString = new URLSearchParams(formData).toString();
+                return queryString;
+            }
+
+            showQuestion(currentQuestionIndex);
+
+            document.getElementById('next-button').addEventListener('click', function() {
+                console.log('Next button clicked');
+                if (currentQuestionIndex < totalQuestions) {
+                    currentQuestionIndex++;
+                    showQuestion(currentQuestionIndex);
+                }
+            });
+
+            document.getElementById('submit-button').addEventListener('click', function() {
+                console.log('Submit button clicked');
+                examSubmitted = true; // Set flag to true when the exam is submitted
+                document.getElementById('candidate-form').classList.add("hidden");
+                document.getElementById('thank-you-container').classList.remove('hidden');
+                submitQuiz();
+            });
+
+            document.getElementById('thank-you-button').addEventListener('click', function() {
+                console.log('Thank You button clicked');
+                const form = document.getElementById('candidate-form');
+                const queryString = serializeForm(form);
+                console.log("queryString:", queryString);
+                const submitUrl = `http://127.0.0.1:5000/submit_quiz?${queryString}`;
+                window.open(submitUrl, '_blank');
+            });
+
+            // Tab restriction logic
+            window.addEventListener('blur', function() {
+                if (!examSubmitted) { // Only apply restriction if the exam is not yet submitted
+                    tabSwitchCount++;
+                    if (tabSwitchCount >= 3) {
+                        alert('You have switched tabs too many times. The exam will be submitted automatically.');
+                        document.getElementById('submit-button').click();
+                    } else {
+                        alert('Please do not switch tabs! You will be penalized.');
+                    }
+                }
+            });
+
+            window.addEventListener('focus', function() {
+                console.log('Tab focus returned');
+            });
+        });
+
+        function submitQuiz() {
+            // Stop the camera
+            const video = document.getElementById('video');
+            const stream = video.srcObject;
+            const tracks = stream.getTracks();
+
+            tracks.forEach(track => {
+                track.stop();
+            });
+
+            // Hide the video element
+            video.style.display = 'none';
+        }
+    </script>
+
+</body>
+</html>
