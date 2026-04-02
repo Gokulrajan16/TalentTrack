@@ -1,0 +1,10 @@
+# Environment variables
+.env
+
+# Captured images
+captured_images/
+
+# Node modules
+node_modules/
+package-lock.json
+yarn.lock
