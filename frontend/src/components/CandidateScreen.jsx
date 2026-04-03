@@ -12,6 +12,7 @@ export default function CandidateScreen() {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const captureIntervalRef = useRef(null);
+  const captureTimeoutRef = useRef(null);
 
   // Fetch questions and start camera on mount
   useEffect(() => {
@@ -48,69 +49,204 @@ export default function CandidateScreen() {
     fetchQuestions();
     startCamera();
 
+    const handleBeforeUnload = () => {
+      try { stopCamera(); } catch (e) { console.error('beforeunload stopCamera error', e); }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     // Cleanup: Stop camera when component unmounts
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       stopCamera();
     };
   }, [navigate]);
 
   const startCamera = async () => {
     try {
+      console.log('Starting camera...');
+      if (streamRef.current) {
+        console.log('startCamera: existing stream found, stopping it first');
+        stopCamera();
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { width: { ideal: 640 }, height: { ideal: 480 } }
       });
+      console.log('Camera stream obtained:', stream);
       streamRef.current = stream;
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        
+        videoRef.current.onloadedmetadata = () => {
+          console.log('Video metadata loaded:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
+        };
+        
+        videoRef.current.onplay = () => {
+          console.log('Video playing successfully');
+        };
+        
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => console.log('Video play started'))
+            .catch(err => console.error('Play error:', err));
+        }
       }
 
-      // Auto-capture images every 5 seconds
-      captureIntervalRef.current = setInterval(() => {
-        captureImageInternal();
-      }, 5000);
+      // Auto-capture images every 5 seconds (start after 3 seconds to let video load)
+      if (captureTimeoutRef.current) {
+        clearTimeout(captureTimeoutRef.current);
+        captureTimeoutRef.current = null;
+      }
+      if (captureIntervalRef.current) {
+        clearInterval(captureIntervalRef.current);
+        captureIntervalRef.current = null;
+      }
+      captureTimeoutRef.current = setTimeout(() => {
+        console.log('Starting capture interval...');
+        captureIntervalRef.current = setInterval(() => {
+          console.log('Capture triggered');
+          captureImageInternal();
+        }, 5000);
+      }, 3000);
 
     } catch (error) {
       console.error('Camera error:', error);
-      alert('Unable to access camera. Please allow camera access.');
+      alert('Unable to access camera. Please allow camera access. Error: ' + error.message);
     }
   };
 
   const stopCamera = () => {
+    console.log('stopCamera: invoked');
+
+    // Clear pending capture timeout
+    if (captureTimeoutRef.current) {
+      try {
+        clearTimeout(captureTimeoutRef.current);
+        console.log('stopCamera: cleared capture timeout');
+      } catch (e) {
+        console.error('stopCamera: error clearing timeout', e);
+      }
+      captureTimeoutRef.current = null;
+    }
+
     // Clear capture interval
     if (captureIntervalRef.current) {
-      clearInterval(captureIntervalRef.current);
+      try {
+        clearInterval(captureIntervalRef.current);
+        console.log('stopCamera: cleared capture interval');
+      } catch (e) {
+        console.error('stopCamera: error clearing interval', e);
+      }
       captureIntervalRef.current = null;
     }
 
-    // Stop all tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
+    // Stop tracks from streamRef or video.srcObject
+    const stream = streamRef.current || (videoRef.current && videoRef.current.srcObject);
+    if (stream && stream.getTracks) {
+      try {
+        const tracks = stream.getTracks();
+        console.log('stopCamera: stopping tracks count=', tracks.length);
+        tracks.forEach(track => {
+          try {
+            track.stop();
+            console.log('stopCamera: stopped track', track.kind);
+          } catch (err) {
+            console.error('stopCamera: error stopping track', err);
+          }
+        });
+      } catch (e) {
+        console.error('stopCamera: error stopping tracks', e);
+      }
+    } else {
+      console.log('stopCamera: no active stream to stop');
     }
 
+    streamRef.current = null;
+
     if (videoRef.current) {
-      videoRef.current.srcObject = null;
+      try {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+        console.log('stopCamera: video paused and srcObject cleared');
+      } catch (err) {
+        console.error('stopCamera: error clearing video element', err);
+      }
     }
   };
 
   const captureImageInternal = () => {
-    if (videoRef.current && canvasRef.current && streamRef.current) {
-      try {
-        const context = canvasRef.current.getContext('2d');
-        context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const imageData = canvasRef.current.toDataURL('image/png');
-        
-        // Send to backend
-        fetch('http://localhost:8000/api/capture_image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageData })
-        }).catch(err => console.error('Image upload error:', err));
-      } catch (error) {
-        console.error('Image capture error:', error);
+    console.log('=== Capture Function Called ===');
+    console.log('videoRef.current:', videoRef.current);
+    console.log('canvasRef.current:', canvasRef.current);
+    console.log('streamRef.current:', streamRef.current);
+
+    if (!videoRef.current) {
+      console.error('❌ Video ref is null');
+      return;
+    }
+
+    if (!canvasRef.current) {
+      console.error('❌ Canvas ref is null');
+      return;
+    }
+
+    try {
+      const video = videoRef.current;
+      console.log('Video readyState:', video.readyState, 'HAVE_ENOUGH_DATA:', video.HAVE_ENOUGH_DATA);
+      console.log('Video dimensions:', video.videoWidth, 'x', video.videoHeight);
+
+      // Check if video is ready to draw from
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        console.warn('⚠️ Video not ready. ReadyState:', video.readyState);
+        return;
       }
+
+      const canvas = canvasRef.current;
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+
+      console.log('Setting canvas to:', width, 'x', height);
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext('2d');
+      if (!context) {
+        console.error('❌ Could not get canvas context');
+        return;
+      }
+
+      console.log('Drawing image to canvas...');
+      context.drawImage(video, 0, 0, width, height);
+      console.log('✓ Image drawn to canvas');
+
+      const imageData = canvas.toDataURL('image/png');
+      console.log('Image data generated, size:', imageData.length, 'bytes');
+
+      // Send to backend
+      console.log('Sending image to backend...');
+      fetch('http://localhost:8000/api/capture_image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
+      })
+        .then(res => {
+          console.log('Response status:', res.status);
+          return res.json();
+        })
+        .then(data => {
+          if (data.success) {
+            console.log('✓ Image captured successfully:', data.filename);
+          } else {
+            console.error('❌ Capture failed:', data.message);
+          }
+        })
+        .catch(err => {
+          console.error('❌ Network error:', err);
+        });
+    } catch (error) {
+      console.error('❌ Image capture error:', error);
+      console.error('Stack:', error.stack);
     }
   };
 
@@ -137,6 +273,7 @@ export default function CandidateScreen() {
     e.preventDefault();
     
     // Stop camera when quiz is submitted
+    console.log('handleSubmit: stopping camera before submit');
     stopCamera();
     
     const candidateId = parseInt(localStorage.getItem('candidateId'));
@@ -252,8 +389,10 @@ export default function CandidateScreen() {
           style={{ display: 'none' }} 
           autoPlay
           muted
+          playsInline
+          crossOrigin="anonymous"
         />
-        <canvas ref={canvasRef} style={{ display: 'none' }} width="640" height="480" />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
 
         {/* Current Question */}
         <div className="question-display">

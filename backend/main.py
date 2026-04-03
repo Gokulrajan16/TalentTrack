@@ -73,6 +73,9 @@ class SubmitRequest(BaseModel):
     candidate_id: int
     quiz_id: int
 
+class CaptureImageRequest(BaseModel):
+    image: str
+
 # -------------------- ADMIN ROUTES --------------------
 
 @app.post("/api/admin/register")
@@ -156,12 +159,25 @@ async def get_results(quiz_id: int, db: Session = Depends(get_db)):
         result_list = []
         for result in results:
             candidate = db.query(Candidate).filter(Candidate.id == result.candidate_id).first()
+            
+            # Build detailed results
+            detailed_results = []
+            for i, question in enumerate(result.questions):
+                selected_answer = result.responses[i] if i < len(result.responses) else None
+                detailed_results.append({
+                    "question": question,
+                    "selected_options": [selected_answer] if selected_answer else [],
+                    "correct_answers": [question.get('correct_answer')],
+                    "is_correct": selected_answer == question.get('correct_answer')
+                })
+            
             result_list.append({
                 "candidate_name": candidate.username if candidate else "Unknown",
                 "score": result.score,
                 "total_questions": result.total_questions,
                 "percentage": result.percentage,
-                "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None
+                "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None,
+                "detailed_results": detailed_results
             })
         
         return {"results": result_list, "success": True}
@@ -304,26 +320,59 @@ async def submit_quiz(data: SubmitRequest, db: Session = Depends(get_db)):
         return {"success": False, "error": str(e)}
 
 @app.post("/api/capture_image")
-async def capture_image(image: str):
+async def capture_image(data: CaptureImageRequest):
     """Capture and save image"""
     try:
-        image_data = image.split(",")[1]
-        image_data = base64.b64decode(image_data)
+        print("\n" + "="*60)
+        print("[CAPTURE_IMAGE] 🎥 Request received from frontend!")
+        print("="*60)
         
-        folder_path = 'captured_images'
+        # Extract base64 image data
+        image_str = data.image
+        print(f"[CAPTURE_IMAGE] Image data length: {len(image_str)} chars")
+        
+        if "," in image_str:
+            image_data = image_str.split(",")[1]
+            print(f"[CAPTURE_IMAGE] Extracted base64, length: {len(image_data)} chars")
+        else:
+            image_data = image_str
+            print(f"[CAPTURE_IMAGE] Using raw base64, length: {len(image_data)} chars")
+        
+        # Decode base64
+        print("[CAPTURE_IMAGE] 🔄 Decoding base64...")
+        image_bytes = base64.b64decode(image_data)
+        print(f"[CAPTURE_IMAGE] ✓ Decoded successfully: {len(image_bytes)} bytes")
+        
+        # Create folder in backend package directory (use file location)
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        folder_path = os.path.join(backend_dir, 'captured_images')
+        print(f"[CAPTURE_IMAGE] Folder path: {folder_path}")
+        
         if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+            os.makedirs(folder_path, exist_ok=True)
+            print(f"[CAPTURE_IMAGE] ✓ Created folder: {folder_path}")
+        else:
+            print(f"[CAPTURE_IMAGE] ✓ Folder exists")
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'{folder_path}/capture_{timestamp}.png'
+        # Generate unique filename with microseconds for uniqueness
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        filename = os.path.join(folder_path, f'capture_{timestamp}.png')
+        print(f"[CAPTURE_IMAGE] 💾 Saving to: {filename}")
         
+        # Write image file
         with open(filename, 'wb') as f:
-            f.write(image_data)
+            f.write(image_bytes)
         
-        return {"message": "Image captured successfully!", "success": True}
+        print(f"[CAPTURE_IMAGE] ✅ File saved successfully!")
+        print("="*60 + "\n")
+        
+        return {"message": "Image captured successfully!", "success": True, "filename": filename}
     
     except Exception as e:
-        print(f"Error capturing image: {e}")
+        print(f"[CAPTURE_IMAGE] ❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        print("="*60 + "\n")
         return {"message": str(e), "success": False}
 
 @app.get("/api/health")
