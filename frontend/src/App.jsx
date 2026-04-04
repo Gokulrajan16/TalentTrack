@@ -4,6 +4,8 @@ import './App.css';
 import LandingPage from './components/LandingPage';
 import AdminDashboard from './components/AdminDashboard';
 import AdminResults from './components/AdminResults';
+import AdminLogin from './components/AdminLogin';
+import AdminRegister from './components/AdminRegister';
 import CandidateLogin from './components/CandidateLogin';
 import CandidateScreen from './components/CandidateScreen';
 import SubmissionConfirmation from './components/SubmissionConfirmation';
@@ -14,7 +16,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
-        <Route path="/admin/login" element={<AdminDashboard />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/register" element={<AdminRegister />} />
         <Route path="/admin/results/:quizId" element={<AdminResults />} />
         <Route path="/candidate/login" element={<CandidateLogin />} />
         <Route path="/candidate/quiz" element={<CandidateScreen />} />

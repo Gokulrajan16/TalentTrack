@@ -380,6 +380,38 @@ async def health():
     """Health check"""
     return {"status": "ok"}
 
+@app.get("/api/captured_images/list")
+async def list_captured_images():
+    """List all captured images (for debugging)"""
+    try:
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        folder_path = os.path.join(backend_dir, 'captured_images')
+        
+        if not os.path.exists(folder_path):
+            return {"success": True, "images": [], "folder_path": folder_path, "folder_exists": False}
+        
+        images = []
+        for filename in sorted(os.listdir(folder_path)):
+            if filename.endswith('.png'):
+                filepath = os.path.join(folder_path, filename)
+                file_size = os.path.getsize(filepath)
+                images.append({
+                    "filename": filename,
+                    "size_bytes": file_size,
+                    "path": filepath
+                })
+        
+        return {
+            "success": True,
+            "images": images,
+            "total_images": len(images),
+            "folder_path": folder_path,
+            "folder_exists": True
+        }
+    except Exception as e:
+        print(f"Error listing images: {e}")
+        return {"success": False, "error": str(e)}
+
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
