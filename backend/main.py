@@ -9,14 +9,12 @@ from groq import Groq
 import json
 from dotenv import load_dotenv
 
-try:
-    from database import get_db, Admin, Quiz, Candidate, Result, engine, Base
-    from auth import (
-        hash_password, verify_password, create_token, decode_token,
-        generate_candidate_credentials
-    )
-except ImportError:
-    print("Error: database.py or auth.py not found. Creating them...")
+from database import get_db, Admin, Quiz, Candidate, Result, Question, engine, Base
+from auth import (
+    hash_password, verify_password, create_token, decode_token,
+    generate_candidate_credentials
+)
+from prompt import get_question_prompt
 
 load_dotenv()
 
@@ -59,6 +57,7 @@ class QuizCreateRequest(BaseModel):
     time_limit: int
     num_questions: int
     num_candidates: int
+    admin_id: int
 
 class CandidateLoginRequest(BaseModel):
     username: str
@@ -112,7 +111,7 @@ async def create_quiz(data: QuizCreateRequest, db: Session = Depends(get_db)):
     """Create quiz and generate candidate credentials"""
     try:
         quiz = Quiz(
-            admin_id=1,
+            admin_id=data.admin_id,
             topic=data.topic,
             difficulty=data.difficulty,
             time_limit=data.time_limit,
@@ -185,6 +184,65 @@ async def get_results(quiz_id: int, db: Session = Depends(get_db)):
         print(f"Error getting results: {e}")
         return {"results": [], "error": str(e)}
 
+@app.get("/api/admin/my-quizzes/{admin_id}")
+async def get_admin_quizzes(admin_id: int, db: Session = Depends(get_db)):
+    """Get all quizzes created by a specific admin"""
+    try:
+        quizzes = db.query(Quiz).filter(Quiz.admin_id == admin_id).all()
+        
+        quiz_list = []
+        for quiz in quizzes:
+            # Get candidate count for this quiz
+            candidate_count = db.query(Candidate).filter(Candidate.quiz_id == quiz.id).count()
+            
+            # Get result count for this quiz
+            result_count = db.query(Result).filter(Result.quiz_id == quiz.id).count()
+            
+            quiz_list.append({
+                "id": quiz.id,
+                "topic": quiz.topic,
+                "difficulty": quiz.difficulty,
+                "time_limit": quiz.time_limit,
+                "num_questions": quiz.num_questions,
+                "num_candidates": candidate_count,
+                "num_results": result_count,
+                "created_at": quiz.created_at.isoformat() if quiz.created_at else None
+            })
+        
+        return {"quizzes": quiz_list, "success": True, "total": len(quiz_list)}
+    except Exception as e:
+        print(f"Error getting admin quizzes: {e}")
+        return {"quizzes": [], "error": str(e)}
+
+@app.get("/api/admin/quiz/{quiz_id}/questions")
+async def get_quiz_questions(quiz_id: int, db: Session = Depends(get_db)):
+    """Get all questions for a quiz (admin view)"""
+    try:
+        questions = db.query(Question).filter(Question.quiz_id == quiz_id).all()
+        
+        if not questions:
+            return {"questions": [], "success": True, "message": "No questions found for this quiz"}
+        
+        questions_list = [
+            {
+                "id": q.id,
+                "q_id": q.q_id,
+                "question": q.question,
+                "options": q.options,
+                "correct_answer": q.correct_answer,
+                "created_at": q.created_at.isoformat() if q.created_at else None
+            } for q in questions
+        ]
+        
+        return {
+            "questions": questions_list,
+            "total_questions": len(questions_list),
+            "success": True
+        }
+    except Exception as e:
+        print(f"Error getting quiz questions: {e}")
+        return {"questions": [], "error": str(e)}
+
 # -------------------- CANDIDATE ROUTES --------------------
 
 @app.post("/api/candidate/login")
@@ -228,24 +286,27 @@ async def generate_quiz(data: GenerateQuizRequest, db: Session = Depends(get_db)
         if not quiz:
             raise HTTPException(status_code=404, detail="Quiz not found")
         
-        prompt = f"""
-Generate {quiz.num_questions} {quiz.difficulty} multiple choice questions on {quiz.topic}.
-
-Return STRICT JSON ONLY in this exact format:
-[
-  {{
-    "q_id": 1,
-    "question": "Question here?",
-    "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
-    "correct_answer": "Option 1"
-  }}
-]
-
-Rules:
-- correct_answer must be EXACT full text matching one of the options
-- No explanations, markdown, or extra text
-- Valid JSON only
-"""
+        # Check if questions already generated for this quiz
+        existing_questions = db.query(Question).filter(Question.quiz_id == data.quiz_id).first()
+        if existing_questions:
+            # Return already generated questions
+            questions = db.query(Question).filter(Question.quiz_id == data.quiz_id).all()
+            parsed = [
+                {
+                    "q_id": q.q_id,
+                    "question": q.question,
+                    "options": q.options,
+                    "correct_answer": q.correct_answer
+                } for q in questions
+            ]
+            return {"questions": parsed, "success": True}
+        
+        # Get dynamic prompt based on difficulty level
+        prompt = get_question_prompt(
+            topic=quiz.topic,
+            difficulty=quiz.difficulty,
+            num_questions=quiz.num_questions
+        )
         
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",    
@@ -268,6 +329,18 @@ Rules:
             clean_json = output
             
         parsed = json.loads(clean_json)
+        
+        # Store questions in database
+        for question_data in parsed:
+            question = Question(
+                quiz_id=data.quiz_id,
+                q_id=question_data.get('q_id'),
+                question=question_data.get('question'),
+                options=question_data.get('options'),
+                correct_answer=question_data.get('correct_answer')
+            )
+            db.add(question)
+        db.commit()
         
         return {"questions": parsed, "success": True}
     

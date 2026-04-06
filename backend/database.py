@@ -41,6 +41,16 @@ class Candidate(Base):
     is_completed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class Question(Base):
+    __tablename__ = "questions"
+    id = Column(Integer, primary_key=True, index=True)
+    quiz_id = Column(Integer, index=True)
+    q_id = Column(Integer)
+    question = Column(String)
+    options = Column(JSON)  # List of options
+    correct_answer = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Result(Base):
     __tablename__ = "results"
     id = Column(Integer, primary_key=True, index=True)

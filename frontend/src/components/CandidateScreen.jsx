@@ -8,12 +8,16 @@ export default function CandidateScreen() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [timeLimit, setTimeLimit] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState(0);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const captureIntervalRef = useRef(null);
   const captureTimeoutRef = useRef(null);
   const cameraStoppedRef = useRef(false);
+  const timerIntervalRef = useRef(null);
+  const submittingRef = useRef(false);
 
   // Fetch questions and start camera on mount
   useEffect(() => {
@@ -37,6 +41,15 @@ export default function CandidateScreen() {
         const data = await response.json();
         if (data.success && data.questions.length > 0) {
           setQuestions(data.questions);
+          
+          // Get time limit from localStorage (set during login)
+          const quizInfoStr = localStorage.getItem('quizInfo');
+          if (quizInfoStr) {
+            const quizInfo = JSON.parse(quizInfoStr);
+            const totalSeconds = quizInfo.time_limit * 60;
+            setTimeLimit(totalSeconds);
+            setTimeRemaining(totalSeconds);
+          }
         } else {
           setError('Failed to load questions: ' + (data.error || 'Unknown error'));
         }
@@ -59,8 +72,57 @@ export default function CandidateScreen() {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       stopCamera();
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
     };
   }, [navigate]);
+
+  // Timer effect - starts countdown when time is set
+  useEffect(() => {
+    if (timeRemaining <= 0 || timeLimit === 0) return;
+
+    timerIntervalRef.current = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1 && !submittingRef.current) {
+          // Time expired - trigger auto submit
+          submittingRef.current = true;
+          console.log('⏰ TIME EXPIRED - AUTO SUBMITTING QUIZ');
+          // The submission will happen through a separate effect
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
+  }, [timeRemaining, timeLimit]);
+
+  // Auto submit effect - when submittingRef is set
+  useEffect(() => {
+    if (!submittingRef.current || questions.length === 0) return;
+
+    const performAutoSubmit = async () => {
+      stopCamera();
+      
+      // Wait a moment to ensure camera fully stops
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const candidateId = parseInt(localStorage.getItem('candidateId'));
+      const quizId = parseInt(localStorage.getItem('quizId'));
+      
+      // Convert responses object to array in question order
+      const responseArray = questions.map(q => responses[q.q_id] || null);
+      
+      console.log('performAutoSubmit: proceeding with auto quiz submission');
+      submitQuizInternal(responseArray, candidateId, quizId);
+    };
+
+    performAutoSubmit();
+  }, [submittingRef.current]);
 
   const startCamera = async () => {
     // Don't restart if already stopped
@@ -338,6 +400,24 @@ export default function CandidateScreen() {
     }
   };
 
+  const handleAutoSubmit = async () => {
+    console.log('⏰ TIME EXPIRED - AUTO SUBMITTING QUIZ');
+    
+    stopCamera();
+    
+    // Wait a moment to ensure camera fully stops
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const candidateId = parseInt(localStorage.getItem('candidateId'));
+    const quizId = parseInt(localStorage.getItem('quizId'));
+    
+    // Convert responses object to array in question order
+    const responseArray = questions.map(q => responses[q.q_id] || null);
+    
+    console.log('handleAutoSubmit: proceeding with auto quiz submission');
+    submitQuizInternal(responseArray, candidateId, quizId);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -357,10 +437,10 @@ export default function CandidateScreen() {
     const responseArray = questions.map(q => responses[q.q_id] || null);
     
     console.log('handleSubmit: proceeding with quiz submission');
-    submitQuiz(responseArray, candidateId, quizId);
+    submitQuizInternal(responseArray, candidateId, quizId);
   };
 
-  const submitQuiz = async (responseArray, candidateId, quizId) => {
+  const submitQuizInternal = async (responseArray, candidateId, quizId) => {
     try {
       // Mark camera as intentionally stopped
       cameraStoppedRef.current = true;
@@ -472,10 +552,35 @@ export default function CandidateScreen() {
   const isFirstQuestion = currentQuestionIndex === 0;
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
+  // Format time remaining for display
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const isTimeRunningOut = timeRemaining > 0 && timeRemaining <= 300; // Last 5 minutes
+
   return (
     <div className="screen candidate-screen">
       <div className="container">
-        <h1>Quiz - Answer the Questions</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h1>Quiz - Answer the Questions</h1>
+          {timeLimit > 0 && (
+            <div style={{
+              padding: '10px 20px',
+              backgroundColor: isTimeRunningOut ? '#e74c3c' : '#3498db',
+              color: '#fff',
+              borderRadius: '8px',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              minWidth: '120px',
+              textAlign: 'center'
+            }}>
+              ⏱️ {formatTime(timeRemaining)}
+            </div>
+          )}
+        </div>
         
         {/* Question Progress */}
         <div className="progress-bar">
